@@ -2,10 +2,6 @@ pipeline {
     agent any
 
     triggers {
-        // pollSCM : vérifie le repo toutes les minutes.
-        // Choix justifié : Jenkins tourne en local sans IP publique,
-        // donc un webhook GitHub entrant est impossible.
-        // pollSCM est plus automatisé qu'un build manuel et suffit pour la CI.
         pollSCM('* * * * *')
     }
 
@@ -16,98 +12,63 @@ pipeline {
 
     stages {
 
-        // ─────────────────────────────────────────────
-        // STAGE 1 — Checkout
-        // Récupère le code source depuis GitHub via SCM.
-        // ─────────────────────────────────────────────
+        // ── Checkout ──────────────────────────────────────────────────────────
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
 
-        // ─────────────────────────────────────────────
-        // STAGE 2 — Install
-        // Installe les dépendances de manière reproductible via npm ci
-        // (plus strict que npm install : respecte exactement le package-lock.json).
-        // Isolation : conteneur node:18-alpine fresh à chaque build.
-        // ─────────────────────────────────────────────
+        // ── Install ───────────────────────────────────────────────────────────
+        // npm ci installe exactement les versions du package-lock.json
         stage('Install') {
-            agent { docker { image 'node:18-alpine'; reuseNode true } }
             steps {
                 sh 'npm ci'
             }
         }
 
-        // ─────────────────────────────────────────────
-        // STAGE 3 — Lint
-        // Vérifie la qualité syntaxique et stylistique du code via ESLint.
-        // Bloque la pipeline si le code ne respecte pas les règles définies.
-        // ─────────────────────────────────────────────
+        // ── Lint ──────────────────────────────────────────────────────────────
         stage('Lint') {
-            agent { docker { image 'node:18-alpine'; reuseNode true } }
             steps {
                 sh 'npm run lint'
             }
         }
 
-        // ─────────────────────────────────────────────
-        // STAGE 4 — Tests
-        // Exécute les tests unitaires avec Jest.
-        // Isolation garantie : conteneur node:18-alpine distinct du stage SAST.
-        // ─────────────────────────────────────────────
+        // ── Tests ─────────────────────────────────────────────────────────────
         stage('Tests') {
-            agent { docker { image 'node:18-alpine'; reuseNode true } }
             steps {
                 sh 'npm test'
             }
         }
 
-        // ─────────────────────────────────────────────
-        // STAGE 5 — Coverage
-        // Vérifie que la couverture de code dépasse le seuil minimal de 70% (lignes).
-        // Seuil choisi : 70% est un standard industrie raisonnable pour une API REST.
-        // Jest échoue avec code 1 si le seuil n'est pas atteint.
-        // ─────────────────────────────────────────────
+        // ── Coverage ──────────────────────────────────────────────────────────
+        // Seuil : 70% lignes/fonctions, 60% branches — standard industrie
         stage('Coverage') {
-            agent { docker { image 'node:18-alpine'; reuseNode true } }
             steps {
                 sh '''npx jest --coverage --coverageThreshold='{"global":{"lines":70,"functions":70,"branches":60}}'
                 '''
             }
         }
 
-        // ─────────────────────────────────────────────
-        // STAGE 6 — SCA (Software Composition Analysis)
-        // Analyse les dépendances NPM à la recherche de vulnérabilités connues (CVE).
-        // npm audit --audit-level=high fait échouer la pipeline si une vuln HIGH ou
-        // CRITICAL est détectée. Outil natif npm, aucune dépendance supplémentaire.
-        // ─────────────────────────────────────────────
+        // ── SCA ───────────────────────────────────────────────────────────────
+        // npm audit détecte les dépendances vulnérables (CVE)
         stage('SCA') {
-            agent { docker { image 'node:18-alpine'; reuseNode true } }
             steps {
                 sh 'npm audit --audit-level=high'
             }
         }
 
-        // ─────────────────────────────────────────────
-        // STAGE 7 — SAST (Static Application Security Testing)
-        // Analyse statique du code source avec Semgrep.
-        // Détecte : XSS, path traversal, secrets hardcodés, injections.
-        // Conteneur semgrep/semgrep isolé → aucune contamination par node_modules.
-        // ─────────────────────────────────────────────
+        // ── SAST ──────────────────────────────────────────────────────────────
+        // Semgrep tourne dans son propre conteneur Docker isolé
+        // → garantit l'isolation avec le stage Tests (environnements séparés)
         stage('SAST') {
-            agent { docker { image 'semgrep/semgrep'; reuseNode true } }
             steps {
-                sh 'semgrep --config=auto --error src/'
+                sh 'docker run --rm -v "${WORKSPACE}:/src" semgrep/semgrep semgrep --config=auto --error /src/src/'
             }
         }
 
-        // ─────────────────────────────────────────────
-        // STAGE 8 — Deploy
-        // Déploiement sur Render via Deploy Hook après validation manuelle.
-        // La validation manuelle (input) garantit qu'un humain valide avant prod.
-        // ─────────────────────────────────────────────
+        // ── Deploy ────────────────────────────────────────────────────────────
+        // Validation manuelle obligatoire avant tout déploiement en production
         stage('Deploy') {
             steps {
                 input message: '🚀 Déployer en production sur Render ?', ok: 'Déployer !'
@@ -118,11 +79,6 @@ pipeline {
         }
     }
 
-    // ─────────────────────────────────────────────
-    // NOTIFICATIONS DISCORD
-    // Envoi automatique en cas d'échec ET de succès.
-    // Le message contient : nom du job, numéro de build, étudiant, lien Jenkins.
-    // ─────────────────────────────────────────────
     post {
         failure {
             script {
