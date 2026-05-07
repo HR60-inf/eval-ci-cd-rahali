@@ -65,7 +65,7 @@ pipeline {
         // → garantit l'isolation avec le stage Tests (environnements séparés)
         stage('SAST') {
             steps {
-                sh 'python3 -m semgrep --config=auto --error src/'
+                sh 'python3.13 -m semgrep --config=auto --error src/'
             }
         }
 
