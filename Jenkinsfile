@@ -65,7 +65,7 @@ pipeline {
         // → garantit l'isolation avec le stage Tests (environnements séparés)
         stage('SAST') {
             steps {
-                sh 'docker run --rm -v "${WORKSPACE}:/src" semgrep/semgrep semgrep --config=auto --error /src/src/'
+                sh 'semgrep --config=auto --error src/'
             }
         }
 
